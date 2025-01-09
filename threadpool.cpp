@@ -5,7 +5,7 @@ void ThreadPool::Run() {
   while (still_working_) {
     std::unique_lock<std::mutex> queue_lock{queue_mtx_};
     queue_var_.wait(queue_lock,
-                    [this]() { return !tasks_.empty() || still_working_; });
+                    [this]() { return !tasks_.empty() || !still_working_; });
     if (!tasks_.empty()) {
       auto task = std::move(tasks_.front());
       tasks_.pop();
