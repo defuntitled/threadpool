@@ -2,7 +2,7 @@
 
 namespace threadpool {
 void ThreadPool::Run() {
-  while (still_working_) {
+  while (true) {
     std::unique_lock<std::mutex> queue_lock{queue_mtx_};
     queue_var_.wait(queue_lock,
                     [this]() { return !tasks_.empty() || !still_working_; });
@@ -14,12 +14,15 @@ void ThreadPool::Run() {
       std::lock_guard<std::mutex> submitted_tasks_lock{submitted_tasks_mtx_};
       submitted_tasks_.insert(task.first);
       submitted_tasks_var_.notify_all();
+    } else if (!still_working_) {
+      // Очередь пуста и пул завершает работу — выходим из цикла
+      break;
     }
   }
 }
 ThreadPool::ThreadPool(size_t threads_count) {
   threads_count_ = threads_count;
-  threads_ = std::vector<std::thread>{threads_count_};
+  threads_.reserve(threads_count_);
   for (size_t i = 0; i < threads_count_; ++i) {
     threads_.emplace_back(&ThreadPool::Run, this);
   }
@@ -45,12 +48,17 @@ bool ThreadPool::IsSubmitted(std::int64_t task_id) {
   return submitted_tasks_.find(task_id) != submitted_tasks_.end();
 }
 
-ThreadPool::~ThreadPool(){
-    still_working_=false;
-    for( auto& thread: threads_){
-        queue_var_.notify_all();
-        thread.join();
+ThreadPool::~ThreadPool() {
+  {
+    std::lock_guard<std::mutex> lock{queue_mtx_};
+    still_working_ = false;
+  }
+  queue_var_.notify_all();
+  for (auto& thread : threads_) {
+    if (thread.joinable()) {
+      thread.join();
     }
+  }
 }
 
 } // namespace threadpool
